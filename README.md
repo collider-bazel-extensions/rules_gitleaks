@@ -25,6 +25,17 @@ git_override(
 )
 ```
 
+To pin by archive and integrity instead of a git tag, replace the `git_override` with:
+
+```python
+archive_override(
+    module_name = "rules_gitleaks",
+    urls = ["https://github.com/collider-bazel-extensions/rules_gitleaks/archive/refs/tags/v0.1.0.tar.gz"],
+    strip_prefix = "rules_gitleaks-0.1.0",
+    integrity = "sha256-BtEeiPaYo/aB+6ODQZq7k+Iu4RpMpZdxBynoMyM2ztQ=",
+)
+```
+
 That's all: rules_gitleaks registers its toolchain and fetches the binary only for the platform a build needs. To pick another pinned version, name it in your own `MODULE.bazel` (only the root module's tag counts):
 
 ```python
