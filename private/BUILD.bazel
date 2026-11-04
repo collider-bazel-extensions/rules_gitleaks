@@ -9,6 +9,7 @@ exports_files([
     "gitleaks.py",
     "run.sh.tmpl",
     "scan.sh.tmpl",
+    "workspace_test.sh.tmpl",
     "versions.bzl",
 ])
 
@@ -36,6 +37,7 @@ bzl_library(
     "config",
     "scan",
     "test",
+    "workspace",
 ]]
 
 bzl_library(

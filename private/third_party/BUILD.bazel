@@ -1,0 +1,8 @@
+package(default_visibility = ["//visibility:public"])
+
+# tomli 2.2.1 (MIT), the TOML parser gitleaks.py uses when the host Python
+# has no tomllib (< 3.11). See README.md.
+filegroup(
+    name = "tomli",
+    srcs = glob(["tomli/*"]),
+)

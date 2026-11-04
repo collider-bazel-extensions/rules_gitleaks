@@ -55,6 +55,7 @@ def analysis_test_suite(name):
     m = ["manual", "no-gitleaks"]
     gitleaks_test(name = s + "_test", srcs = ["//:defs.bzl"], tags = m)
     gitleaks_scan(name = s + "_scan", tags = m)
+    gitleaks_scan(name = s + "_tracked_git", mode = "git", tracked_only = True, tags = m)
     gitleaks_test(name = s + "_bad_redact", srcs = ["//:defs.bzl"], redact = 101, tags = m)
     gitleaks_test(name = s + "_empty", srcs = [], tags = m)
     gitleaks_check(name = s + "_check_empty", srcs = [], tags = m)
@@ -81,6 +82,7 @@ def analysis_test_suite(name):
         "_bad_redact": (_fails_test, ":" + s + "_bad_redact", "expected 0..100"),
         "_empty": (_fails_test, ":" + s + "_empty", "srcs is empty"),
         "_check_empty": (_fails_test, ":" + s + "_check_empty", "srcs is empty"),
+        "_tracked_git": (_fails_test, ":" + s + "_tracked_git", "tracked_only applies to mode = \"dir\""),
         "_no_cases": (_fails_test, ":" + s + "_no_cases", "no cases"),
         "_no_ids": (_fails_test, ":" + s + "_no_ids", "no rule IDs"),
         "_both": (_fails_test, ":" + s + "_both", "in both leaks and clean"),

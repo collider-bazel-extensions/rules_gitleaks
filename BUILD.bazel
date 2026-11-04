@@ -1,5 +1,5 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
-load("//:defs.bzl", "gitleaks_scan")
+load("//:defs.bzl", "gitleaks_scan", "gitleaks_workspace_test")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -40,4 +40,12 @@ bzl_library(
         "//private:scan",
         "//private:test",
     ],
+)
+
+# Dogfood: this checkout's git-tracked files (uncached; reads the live tree).
+gitleaks_workspace_test(name = "workspace_tracked_test")
+
+gitleaks_scan(
+    name = "gitleaks_tracked",
+    tracked_only = True,
 )
