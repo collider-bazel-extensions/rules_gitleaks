@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Runs gitleaks for rules_gitleaks. Standard library only.
+"""Runs gitleaks for rules_gitleaks. Standard library only, plus the
+vendored tomli (third_party/) on Pythons without tomllib (< 3.11).
 
   gitleaks.py check-config --gitleaks BIN --config FILE --label L --marker OUT
       gitleaks_config's validation action. Loads the config the way a scan
@@ -8,6 +9,14 @@
       ignores unknown keys, so a typo such as `pathss` in an allowlist
       silently disables it). `[extend] path` / `url` are refused: the
       first can't be staged reliably, the second fetches at scan time.
+      The TOML is parsed with tomllib, else the vendored tomli
+      (RULES_GITLEAKS_VENDORED_TOML=1 forces it), so the key check always
+      runs on Python 3.8+.
+
+  gitleaks.py config-test --gitleaks BIN --config FILE --label L
+                          [--expect-error REGEX] [--junit OUT]
+      gitleaks_config_test: the same check, which must pass, or with
+      --expect-error fail with a message matching REGEX (re.search).
 
   gitleaks.py scan --gitleaks BIN --config FILE --label L --manifest M
                    [--runfiles] [--ignore F] [--baseline F] [--redact N]
@@ -24,6 +33,15 @@
       for the repository. Exits 0 when clean, 1 on leaks (after printing
       them), 2 if gitleaks itself failed.
 
+  gitleaks.py workspace --gitleaks BIN --config FILE --label L --root DIR
+                        [--tracked-only] [scan options] [GITLEAKS ARGS...]
+      gitleaks_scan(tracked_only) and gitleaks_workspace_test. Scans the
+      files under DIR: with --tracked-only those in the git index (`git
+      ls-files`: committed plus staged), else every file except .git and
+      symlinks. They're staged like `scan`'s. Without --ignore,
+      DIR/.gitleaksignore is used if present. Outside a git checkout
+      --tracked-only exits 2, saying so.
+
   gitleaks.py rule-test --gitleaks BIN --config FILE --label L --manifest M
                         [--junit OUT]
       gitleaks_rule_test. M lists "<workspace path>\t<file>\t<rule ids>"
@@ -37,12 +55,15 @@ working directory (an action's exec root).
 
 import argparse
 import json
+import re
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
 from xml.sax.saxutils import escape, quoteattr
+
+sys.dont_write_bytecode = True  # no __pycache__ in runfiles or the vendored tomli
 
 LEAKS_EXIT = 3  # --exit-code: tells leaks apart from gitleaks' own errors (1, 2)
 
@@ -134,36 +155,91 @@ def _run(cmd, cwd=None):
                           stderr=subprocess.STDOUT, text=True, errors="replace")
 
 
-def check_config(args):
+def _toml():
+    """(module, name): the standard library's tomllib (Python 3.11+), else
+    the vendored tomli 2.2.1 (third_party/tomli), so the key check runs on
+    any Python 3.8+. RULES_GITLEAKS_VENDORED_TOML=1 forces tomli."""
+    if os.environ.get("RULES_GITLEAKS_VENDORED_TOML") != "1":
+        try:
+            import tomllib
+            return tomllib, "tomllib"
+        except ImportError:
+            pass
+    here = os.path.dirname(os.path.abspath(__file__))
+    for d in (here, os.path.dirname(os.path.realpath(__file__))):
+        tp = os.path.join(d, "third_party")
+        if os.path.isdir(os.path.join(tp, "tomli")) and tp not in sys.path:
+            sys.path.insert(0, tp)
+    import tomli
+    return tomli, "tomli " + getattr(tomli, "__version__", "")
+
+
+def config_errors(gitleaks, config):
+    """-> (list of error messages, TOML parser used)."""
+    toml, parser = _toml()
     errs = []
     try:
-        import tomllib  # Python 3.11+
-    except ImportError:
-        tomllib = None
-    if tomllib is not None:
-        try:
-            with open(args.config, "rb") as f:
-                doc = tomllib.load(f)
-        except tomllib.TOMLDecodeError as e:
-            errs.append(f"not valid TOML: {e}")
-        else:
-            errs += schema_errors(doc)
+        with open(config, "rb") as f:
+            doc = toml.load(f)
+    except toml.TOMLDecodeError as e:
+        errs.append(f"not valid TOML: {e}")
+    else:
+        errs += schema_errors(doc)
     if not errs:
         empty = tempfile.mkdtemp(prefix="gitleaks-check-")
         try:
-            p = _run([args.gitleaks, "dir", empty, "--no-banner", "--no-color",
+            p = _run([gitleaks, "dir", empty, "--no-banner", "--no-color",
                       "--log-level", "error", "--exit-code", str(LEAKS_EXIT),
-                      "--config", os.path.abspath(args.config),
+                      "--config", os.path.abspath(config),
                       "--gitleaks-ignore-path", os.devnull])
         finally:
             shutil.rmtree(empty, ignore_errors=True)
         if p.returncode not in (0, LEAKS_EXIT):
             errs.append("gitleaks refused it:\n" + _gitleaks_error(p.stdout))
+    return errs, parser
+
+
+def check_config(args):
+    errs, parser = config_errors(args.gitleaks, args.config)
     if errs:
         _log(f"gitleaks_config {args.label}: " + "\n  ".join(errs))
         return 1
     with open(args.marker, "w") as f:
-        f.write("ok\n" if tomllib else "ok (no key check: needs Python 3.11+)\n")
+        f.write(f"ok (keys checked with {parser})\n")
+    return 0
+
+
+def config_test(args):
+    """gitleaks_config_test: the check must pass (no --expect-error) or
+    fail with a message matching --expect-error (a Python regex)."""
+    rc = _config_test(args)
+    if args.junit:
+        name = (f"{args.label}: fails with /{args.expect_error}/" if args.expect_error
+                else f"{args.label}: passes")
+        _junit(args.junit, f"gitleaks_config_test {args.label}",
+               [(name, None if rc == 0 else "see the test log")])
+    return rc
+
+
+def _config_test(args):
+    errs, parser = config_errors(args.gitleaks, args.config)
+    msg = f"gitleaks_config {args.label}: " + "\n  ".join(errs) if errs else ""
+    where = f"{args.label} (keys checked with {parser})"
+    if not args.expect_error:
+        if errs:
+            _log(f"FAIL: {where} should pass the config check, but:\n{msg}")
+            return 1
+        print(f"PASS: {where} passes the config check")
+        return 0
+    if not errs:
+        _log(f"FAIL: {where} passed the config check; expected an error matching "
+             f"{args.expect_error!r}")
+        return 1
+    if not re.search(args.expect_error, msg):
+        _log(f"FAIL: {where} failed the config check, but the message doesn't match "
+             f"{args.expect_error!r}:\n{msg}")
+        return 1
+    print(f"PASS: {where} fails the config check as expected:\n{msg}")
     return 0
 
 
@@ -300,6 +376,79 @@ def scan(args):
         shutil.rmtree(work, ignore_errors=True)
 
 
+# ---- workspace scans (gitleaks_scan(tracked_only), gitleaks_workspace_test) ----
+
+
+def git_tracked(root):
+    """-> (paths relative to root, None) or (None, why not). The paths are
+    the git index (`git ls-files --cached`: committed plus staged), limited
+    to regular files that exist in the working tree; their working-tree
+    content is what gets scanned."""
+    git = shutil.which("git")
+    if not git:
+        return None, "git is not on PATH (tracked_only lists files with `git ls-files`)"
+    p = subprocess.run([git, "-C", root, "rev-parse", "--is-inside-work-tree"],
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if p.returncode != 0 or p.stdout.strip() != "true":
+        return None, (f"{root} is not inside a git checkout, so there are no tracked files "
+                      f"to scan ({p.stderr.strip() or p.stdout.strip()}). Scan explicit files "
+                      f"with gitleaks_test(srcs = ...), or the whole tree with "
+                      f"tracked_only = False")
+    p = subprocess.run([git, "-C", root, "ls-files", "-z", "--cached"],
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if p.returncode != 0:
+        return None, f"git ls-files failed in {root}: {p.stderr.decode(errors='replace').strip()}"
+    out = []
+    for rel in p.stdout.decode("utf-8", "surrogateescape").split("\0"):
+        full = os.path.join(root, rel)
+        # Deleted-but-not-staged files, submodules (directories) and
+        # symlinks aren't scanned, as `gitleaks dir` wouldn't either.
+        if rel and os.path.isfile(full) and not os.path.islink(full):
+            out.append(rel)
+    return out, None
+
+
+def tree_files(root):
+    """Every regular file under root, skipping .git and symlinks (bazel-*)."""
+    out = []
+    for d, dirs, files in os.walk(root):
+        dirs[:] = [x for x in dirs if x != ".git" and not os.path.islink(os.path.join(d, x))]
+        for name in files:
+            full = os.path.join(d, name)
+            if not os.path.islink(full):
+                out.append(os.path.relpath(full, root))
+    return out
+
+
+def workspace(args):
+    root = os.path.realpath(args.root)
+    if args.tracked_only:
+        files, why = git_tracked(root)
+        if why:
+            _log(f"gitleaks {args.label}: {why}")
+            return 2
+        what = "git-tracked file(s)"
+    else:
+        files, what = tree_files(root), "file(s) in the working tree"
+    if args.ignore is None and os.path.isfile(os.path.join(root, ".gitleaksignore")):
+        args.ignore = os.path.join(root, ".gitleaksignore")
+    print(f"gitleaks {args.label}: scanning {len(files)} {what} under {root}"
+          + (f", ignoring the fingerprints in {args.ignore}" if args.ignore else ""),
+          file=sys.stderr, flush=True)
+    fd, manifest = tempfile.mkstemp(prefix="gitleaks-manifest-")
+    try:
+        with os.fdopen(fd, "w") as f:
+            for rel in files:
+                f.write(f"{rel}\t{os.path.join(root, rel)}\n")
+        args.manifest, args.runfiles = manifest, False
+        rc = scan(args)
+        if rc == 0:
+            print(f"gitleaks {args.label}: no leaks", file=sys.stderr)
+        return rc
+    finally:
+        os.remove(manifest)
+
+
 def rule_test(args):
     work = tempfile.mkdtemp(prefix="gitleaks-rules-")
     root, report = os.path.join(work, "src"), os.path.join(work, "report.json")
@@ -343,21 +492,30 @@ def rule_test(args):
 
 
 def main(argv):
-    p = argparse.ArgumentParser(prog="gitleaks.py", fromfile_prefix_chars="@")
+    p = argparse.ArgumentParser(prog="gitleaks.py")
     sub = p.add_subparsers(dest="mode", required=True)
-    for mode in ("check-config", "scan", "rule-test"):
-        s = sub.add_parser(mode, fromfile_prefix_chars="@")
+    for mode in ("check-config", "config-test", "scan", "workspace", "rule-test"):
+        s = sub.add_parser(mode)
         s.add_argument("--gitleaks", required=True)
         s.add_argument("--config", required=True)
         s.add_argument("--label", default="")
+        s.add_argument("--runfiles", action="store_true")
         if mode == "check-config":
             s.add_argument("--marker", required=True)
             continue
-        s.add_argument("--manifest", required=True)
-        s.add_argument("--runfiles", action="store_true")
+        if mode == "config-test":
+            s.add_argument("--expect-error", default="")
+            s.add_argument("--junit")
+            s.add_argument("extra", nargs="*")
+            continue
+        if mode == "workspace":
+            s.add_argument("--root", required=True)
+            s.add_argument("--tracked-only", action="store_true")
+        else:
+            s.add_argument("--manifest", required=True)
         s.add_argument("--redact", type=int, default=100)
         s.add_argument("--junit")
-        if mode == "scan":
+        if mode in ("scan", "workspace"):
             s.add_argument("--ignore")
             s.add_argument("--baseline")
             s.add_argument("--enable-rule", action="append")
@@ -365,13 +523,23 @@ def main(argv):
             s.add_argument("--sarif")
             s.add_argument("--marker")
         s.add_argument("extra", nargs="*")
-    args = p.parse_args(argv)
-    if args.mode == "check-config":
-        return check_config(args)
+    # `bazel run` of a tracked-only gitleaks_scan passes the user's
+    # arguments through: our own (--json=...) and gitleaks flags mixed.
+    args, unknown = p.parse_known_args(argv)
+    if unknown:
+        if args.mode != "workspace":
+            p.error(f"unrecognized arguments: {' '.join(unknown)}")
+        args.extra = list(args.extra) + unknown
     # Absolute: the scan runs with the staged tree as its working directory.
     for name in ("gitleaks", "config", "ignore", "baseline", "manifest"):
         if getattr(args, name, None):
             setattr(args, name, os.path.abspath(_resolve(getattr(args, name), args.runfiles)))
+    if args.mode == "check-config":
+        return check_config(args)
+    if args.mode == "config-test":
+        return config_test(args)
+    if args.mode == "workspace":
+        return workspace(args)
     return scan(args) if args.mode == "scan" else rule_test(args)
 
 

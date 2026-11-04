@@ -21,10 +21,17 @@ resolve() {
 # list would not stop the script under `set -e`.
 gitleaks="$(resolve '__GITLEAKS__')"
 config="$(resolve '__CONFIG__')"
+driver="$(resolve '__DRIVER__')"
 opts=()
 __OPTS__
 
 cd "$BUILD_WORKSPACE_DIRECTORY"
 unset GITLEAKS_CONFIG GITLEAKS_CONFIG_TOML
+if [[ -n '__TRACKED__' ]]; then
+  # tracked_only: the driver lists `git ls-files` and stages those files.
+  exec python3 "$driver" workspace --tracked-only --root "$BUILD_WORKSPACE_DIRECTORY" \
+    --gitleaks "$gitleaks" --config "$config" --label '__LABEL__' --redact __REDACT__ \
+    ${opts[@]+"${opts[@]}"} __EXTRA__ "$@"
+fi
 exec "$gitleaks" __MODE__ . --no-banner --config "$config" --redact=__REDACT__ \
   ${opts[@]+"${opts[@]}"} __EXTRA__ "$@"

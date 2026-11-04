@@ -4,24 +4,26 @@ Bazel rules for [gitleaks](https://github.com/gitleaks/gitleaks), the secret sca
 
 - **Config (build time)**
   - `gitleaks_config` — a `.gitleaks.toml`, loaded by gitleaks and schema-checked on every build. A bad regex, a rule without an id or a typo that gitleaks would silently ignore (`pathss` in an allowlist) fails `bazel build`.
+  - `gitleaks_config_test` — a test that a config passes that check, or fails it with an expected message.
 - **Scans**
   - `gitleaks_test` — a test that fails if `srcs` contain secrets. `srcs` can be files, filegroups, or any target's outputs: rendered manifests, packaged configs, tree artifacts. Writes JUnit, JSON and optionally SARIF reports.
   - `gitleaks_check` — the same scan as a validation action, so a leak fails `bazel build`.
   - `gitleaks_aspect` — scans every target's own files, incrementally: `bazel build //... --aspects=@rules_gitleaks//:defs.bzl%gitleaks_aspect`.
-  - `gitleaks_scan` — `bazel run` over the workspace's working tree or its git history.
+  - `gitleaks_scan` — `bazel run` over the workspace's working tree (optionally only the files git tracks) or its git history.
+  - `gitleaks_workspace_test` — an uncached test over the live checkout's git-tracked files, so `bazel test //...` covers the repository without being failed by gitignored local files.
 - **Rule tests**
   - `gitleaks_rule_test` — sample files that must produce exactly the expected rule IDs, or none: unit tests for custom rules and allowlists.
 
-No host gitleaks needed. The binary is the upstream release for linux and darwin on amd64 and arm64, pinned by SHA-256 (gitleaks 8.30.1). The rules need `python3` on the host; the config key check needs Python 3.11+ (`tomllib`), and is skipped on older Pythons.
+No host gitleaks needed. The binary is the upstream release for linux and darwin on amd64 and arm64, pinned by SHA-256 (gitleaks 8.30.1). The rules need `python3` (3.8+) on the host. The config key check uses the standard library's `tomllib` on Python 3.11+, else a vendored copy of tomli 2.2.1 (MIT), so it always runs.
 
 ## Install (Bzlmod)
 
 ```python
-bazel_dep(name = "rules_gitleaks", version = "0.1.0")
+bazel_dep(name = "rules_gitleaks", version = "0.2.0")
 git_override(
     module_name = "rules_gitleaks",
     remote = "https://github.com/collider-bazel-extensions/rules_gitleaks",
-    tag = "v0.1.0",
+    tag = "v0.2.0",
 )
 ```
 
@@ -78,6 +80,27 @@ keywords = ["acme_live_"]
 
 - **`[extend] path` and `url` are refused:** a path can't be staged reliably, and a URL is fetched at scan time. Use `useDefault = true` (optionally with `disabledRules`), and put your rules in this file.
 - Without `config`, every scan uses `@rules_gitleaks//config:default`: gitleaks' built-in rules.
+- **Any Python 3.8+.** The key check parses the TOML with `tomllib` (3.11+) or, on older Pythons, a vendored tomli 2.2.1, so a typo fails the build on every host.
+
+### `gitleaks_config_test`
+
+A `gitleaks_config` of a broken file fails the build, so it can't express "this broken config is caught". `gitleaks_config_test` runs the same check as a test:
+
+```python
+load("@rules_gitleaks//:defs.bzl", "gitleaks_config_test")
+
+gitleaks_config_test(
+    name = "typo_is_caught_test",
+    src = "testdata/typo.toml",                 # a .toml file, not a gitleaks_config
+    expect_error = "unknown key 'pathss'",      # Python regex (re.search)
+)
+
+gitleaks_config_test(name = "config_ok_test", src = ".gitleaks.toml")   # must pass
+```
+
+- **Pass or fail:** with `expect_error`, the check must fail with a matching message. Without it, the check must pass.
+- **Output:** either way the log names the file and shows the check's message. A mismatch fails the test, saying which.
+- **`env`:** sets the test's environment. `{"RULES_GITLEAKS_VENDORED_TOML": "1"}` forces the vendored TOML parser.
 
 ## `gitleaks_test`
 
@@ -190,11 +213,13 @@ gitleaks_rule_test(
 load("@rules_gitleaks//:defs.bzl", "gitleaks_scan")
 
 gitleaks_scan(name = "gitleaks", config = ":gitleaks_config")
+gitleaks_scan(name = "gitleaks_tracked", config = ":gitleaks_config", tracked_only = True)
 gitleaks_scan(name = "gitleaks_history", config = ":gitleaks_config", mode = "git")
 ```
 
 ```sh
 bazel run //:gitleaks                      # the working tree
+bazel run //:gitleaks_tracked              # only what git tracks (git ls-files)
 bazel run //:gitleaks_history              # every commit (needs git on PATH)
 bazel run //:gitleaks -- --report-path=gitleaks-baseline.json --report-format=json --exit-code=0
 ```
@@ -203,6 +228,27 @@ bazel run //:gitleaks -- --report-path=gitleaks-baseline.json --report-format=js
 - **What it skips:** symlinks, including `bazel-*`, are not followed.
 - **Ignore file:** without `ignore`, gitleaks reads `./.gitleaksignore` if present.
 - **Arguments** after `--` go to gitleaks; relative paths are relative to the workspace root. The last command writes a baseline to pass as `baseline`.
+- **`tracked_only = True`:** scans the files in the git index (`git ls-files`: committed plus staged) with their working-tree content. Gitignored files are skipped, such as a developer's `.env.local` or other worktrees under `.claude/worktrees/`, and so are untracked ones.
+  - The files are staged under their workspace paths as `gitleaks_test`'s are, so fingerprints match.
+  - Reports come from rules_gitleaks rather than gitleaks: `-- --json=PATH --sarif=PATH --junit=PATH`. Other arguments go to gitleaks.
+  - It needs git on `PATH`. Outside a git checkout (a source archive, say) it fails with `… is not inside a git checkout`.
+  - `dir` mode only; `mode = "git"` already scans only what git has.
+
+## `gitleaks_workspace_test`
+
+```python
+load("@rules_gitleaks//:defs.bzl", "gitleaks_workspace_test")
+
+# In the root BUILD file.
+gitleaks_workspace_test(name = "secrets_test", config = ":gitleaks_config")
+```
+
+- **What it scans:** the same files as `gitleaks_scan(tracked_only = True)`, as a test, so `bazel test //...` checks the repository's tracked files. It reports like `gitleaks_test`, including JUnit, JSON and `sarif`.
+- **It reads the live checkout,** so it is never cached or sandboxed: it is always tagged `local`, `external` and `no-sandbox`, and every run scans the files as they are now.
+- **Finding the workspace:** `$BUILD_WORKSPACE_DIRECTORY` if set (under `bazel run`). Otherwise it resolves its `marker` runfile, `//:MODULE.bazel` by default, to the real file and takes the nearest directory above it with a `MODULE.bazel`. With `--incompatible_no_implicit_file_export`, add `exports_files(["MODULE.bazel"])` to the root BUILD file.
+- **Outside a git checkout** it fails, saying so. `tracked_only = False` scans the whole working tree instead, skipping `.git` and symlinks.
+- **Ignore file:** without `ignore`, the workspace's `.gitleaksignore` applies if present.
+- Takes `config`, `ignore`, `baseline`, `redact`, `enable_rules`, `extra_args` and `sarif`, like `gitleaks_test`.
 
 ## Pinned versions
 

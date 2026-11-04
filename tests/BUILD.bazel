@@ -6,9 +6,11 @@ load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load(
     "//:defs.bzl",
     "gitleaks_check",
+    "gitleaks_config_test",
     "gitleaks_rule_test",
     "gitleaks_scan",
     "gitleaks_test",
+    "gitleaks_workspace_test",
 )
 load(":analysis_tests.bzl", "analysis_test_suite")
 load(":fixtures.bzl", "baseline", "fixture", "fixture_tree")
@@ -155,25 +157,74 @@ sh_test(
 
 # ---- gitleaks_config ----------------------------------------------------------
 
+# The config check through the public gitleaks_config_test: a good config
+# passes; each bad one fails with its message.
+[gitleaks_config_test(
+    name = "config_" + name + "_test",
+    src = "//tests/testdata:{}.toml".format(name),
+    expect_error = error,
+) for name, error in [
+    ("corp", ""),
+    ("typo", "rule 'corp-token' allowlists\\[0\\]: unknown key 'pathss'"),
+    ("extend_url", "\\[extend\\] url: not supported"),
+    ("bad_regex", "error parsing regexp: missing closing \\)"),
+    ("bad_toml", "not valid TOML"),
+    ("no_id", "rule \\|id\\| is missing or empty"),
+]]
+
+# The same two with the vendored tomli forced (as on Python < 3.11).
+[gitleaks_config_test(
+    name = "config_" + name + "_vendored_toml_test",
+    src = "//tests/testdata:{}.toml".format(name),
+    env = {"RULES_GITLEAKS_VENDORED_TOML": "1"},
+    expect_error = error,
+) for name, error in [
+    ("corp", ""),
+    ("typo", "unknown key 'pathss'"),
+]]
+
+# vendored_toml_test checks the vendored parser really ran; the wrong_*
+# targets are wrong on purpose, for config_test_failure_test.
+gitleaks_config_test(
+    name = "wrong_error_config_test",
+    src = "//tests/testdata:typo.toml",
+    expect_error = "no such message",
+    tags = ["manual"],
+)
+
+gitleaks_config_test(
+    name = "wrong_pass_config_test",
+    src = "//tests/testdata:corp.toml",
+    expect_error = "anything",
+    tags = ["manual"],
+)
+
+gitleaks_config_test(
+    name = "wrong_fail_config_test",
+    src = "//tests/testdata:typo.toml",
+    tags = ["manual"],
+)
+
 sh_test(
-    name = "config_check_test",
-    srcs = ["config_check_test.sh"],
+    name = "vendored_toml_test",
+    srcs = ["vendored_toml_test.sh"],
+    args = ["$(rootpath :config_typo_vendored_toml_test)"],
+    data = [":config_typo_vendored_toml_test"],
+)
+
+sh_test(
+    name = "config_test_failure_test",
+    srcs = ["config_test_failure_test.sh"],
     args = [
-        "$(rootpath //private:gitleaks.py)",
-        "$(rootpath //toolchain:current)",
-        "$(rootpath //tests/testdata:corp.toml)",
+        "$(rootpath :wrong_error_config_test)",
+        "$(rootpath :wrong_pass_config_test)",
+        "$(rootpath :wrong_fail_config_test)",
     ],
     data = [
-        "//private:gitleaks.py",
-        "//toolchain:current",
-    ] + ["//tests/testdata:" + f for f in [
-        "bad_regex.toml",
-        "bad_toml.toml",
-        "corp.toml",
-        "extend_url.toml",
-        "no_id.toml",
-        "typo.toml",
-    ]],
+        ":wrong_error_config_test",
+        ":wrong_fail_config_test",
+        ":wrong_pass_config_test",
+    ],
 )
 
 # ---- gitleaks_scan ------------------------------------------------------------
@@ -187,6 +238,45 @@ gitleaks_scan(
     name = "fixture_history_scan",
     mode = "git",
     tags = ["manual"],
+)
+
+# tracked_only, over a temp git repo (tracked_scan_test).
+gitleaks_scan(
+    name = "fixture_tracked_scan",
+    config = "//tests/testdata:corp",
+    tags = ["manual"],
+    tracked_only = True,
+)
+
+gitleaks_workspace_test(
+    name = "fixture_workspace_test",
+    config = "//tests/testdata:corp",
+    tags = ["manual"],
+)
+
+gitleaks_workspace_test(
+    name = "fixture_tree_workspace_test",
+    config = "//tests/testdata:corp",
+    tags = ["manual"],
+    tracked_only = False,
+)
+
+sh_test(
+    name = "tracked_scan_test",
+    srcs = ["tracked_scan_test.sh"],
+    args = [
+        "$(rootpath :fixture_tracked_scan)",
+        "$(rootpath :fixture_workspace_test)",
+        "$(rootpath :fixture_tree_workspace_test)",
+        "$(rootpath :make_fixture.sh)",
+    ],
+    data = [
+        ":fixture_tracked_scan",
+        ":fixture_tree_workspace_test",
+        ":fixture_workspace_test",
+        ":make_fixture.sh",
+    ],
+    tags = _NO,
 )
 
 sh_test(

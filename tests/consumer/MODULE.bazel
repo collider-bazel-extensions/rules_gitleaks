@@ -1,0 +1,14 @@
+"""A consumer of rules_gitleaks (local_path_override), run from CI:
+
+    cd tests/consumer && bazel test //...
+
+Exercises rules_gitleaks from another repository, where its labels are
+external (`@rules_gitleaks+//config:default`): v0.1.0's driver read such
+a label as an `@file` argument, so every scan using the default config
+failed to build in consumers.
+"""
+
+module(name = "consumer")
+
+bazel_dep(name = "rules_gitleaks", version = "0.2.0")
+local_path_override(module_name = "rules_gitleaks", path = "../..")

@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# gitleaks_workspace_test: finds the live workspace, runs the driver on it.
+# Substitution markers use __KEY__ syntax to avoid colliding with bash.
+set -euo pipefail
+
+if [[ -z "${RUNFILES_DIR:-}" ]]; then
+  if [[ -n "${TEST_SRCDIR:-}" ]]; then RUNFILES_DIR="$TEST_SRCDIR"
+  elif [[ -d "${0}.runfiles" ]]; then RUNFILES_DIR="${0}.runfiles"
+  fi
+  : "${RUNFILES_DIR:?gitleaks_workspace_test: no runfiles found}"
+  export RUNFILES_DIR
+fi
+resolve() {
+  local p="$1"
+  for c in "${RUNFILES_DIR}/_main/${p}" "${RUNFILES_DIR}/${p}" "${RUNFILES_DIR}/${p#../}"; do
+    [[ -e "$c" ]] && { printf '%s\n' "$c"; return; }
+  done
+  echo "gitleaks_workspace_test: not in runfiles: ${p}" >&2
+  exit 1
+}
+
+driver="$(resolve '__DRIVER__')"
+if [[ -n "${BUILD_WORKSPACE_DIRECTORY:-}" ]]; then
+  root="$BUILD_WORKSPACE_DIRECTORY"
+else
+  # The marker's runfile is a symlink into the source tree (the test is
+  # unsandboxed); its real path locates the workspace.
+  marker="$(resolve '__MARKER__')"
+  root="$(python3 -c 'import os, sys
+d = os.path.dirname(os.path.realpath(sys.argv[1]))
+while not any(os.path.isfile(os.path.join(d, f)) for f in ("MODULE.bazel", "REPO.bazel", "WORKSPACE")):
+    up = os.path.dirname(d)
+    if up == d:
+        sys.exit("gitleaks_workspace_test: no MODULE.bazel above " + sys.argv[1])
+    d = up
+print(d)' "$marker")"
+fi
+
+out="${TEST_UNDECLARED_OUTPUTS_DIR:-${TEST_TMPDIR:-${TMPDIR:-/tmp}}}"
+reports=(--json "$out/gitleaks.json")
+if [[ -n '__SARIF__' ]]; then reports+=(--sarif "$out/gitleaks.sarif"); fi
+if [[ -n "${XML_OUTPUT_FILE:-}" ]]; then reports+=(--junit "$XML_OUTPUT_FILE"); fi
+
+exec python3 "$driver" workspace --runfiles --root "$root" __ARGS__ "${reports[@]}" -- __EXTRA__

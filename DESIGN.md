@@ -45,7 +45,11 @@ So the driver tells "leaks" (test fails and lists them, exit 1) from "gitleaks b
 ## `gitleaks_config`: two checks
 
 1. **gitleaks loads it,** by scanning an empty directory with it: TOML syntax, rule regexes (compiled at load), missing ids, empty rules.
-2. **A key check against gitleaks' schema** (`config.ViperConfig`; keys are case-insensitive, as viper reads them). gitleaks ignores unknown keys, so `pathss = [...]` in an allowlist allows nothing, and a misspelt `keywords` silently drops a rule's prefilter. This check needs `tomllib` (Python 3.11+); on older Pythons it is skipped, and the marker file says so.
+2. **A key check against gitleaks' schema** (`config.ViperConfig`; keys are case-insensitive, as viper reads them). gitleaks ignores unknown keys, so `pathss = [...]` in an allowlist allows nothing, and a misspelt `keywords` silently drops a rule's prefilter. It parses the TOML with the standard library's `tomllib` (Python 3.11+).
+
+   **Before v0.2 (#1)** the check was skipped on older Pythons, so a typo passed the build on one host and failed it on another. Two fixes were possible:
+   - **A hermetic Python toolchain (rules_python):** a heavy dependency for one parser.
+   - **Vendoring (chosen):** `private/third_party/tomli` is tomli 2.2.1 (MIT), the pure-Python library `tomllib` was adopted from. It's used when `tomllib` is missing, so the check now runs on any Python 3.8+. `RULES_GITLEAKS_VENDORED_TOML=1` forces it, and tests run both parsers. The marker file and `gitleaks_config_test`'s output say which parser was used.
 
 `[extend] path` and `url` are refused. A path is resolved at scan time relative to gitleaks' working directory, which the staging changes; a URL is a network fetch during the build.
 
@@ -54,6 +58,24 @@ So the driver tells "leaks" (test fails and lists them, exit 1) from "gitleaks b
 - **One gitleaks pass:** writes the JSON report. The driver reads it to print the summary and to write JUnit itself, one test case per finding, so a CI test-results view lists the leaks.
 - **SARIF:** a second pass, only with `sarif = True`. gitleaks writes one report format per run, and most users don't need SARIF.
 - **Redaction:** `redact` (default 100) applies to the output and every report. Test logs and outputs are uploaded by CI, so they shouldn't carry the secret they warn about.
+
+## `gitleaks_config_test`
+
+The check is a validation action, so a `gitleaks_config` of a broken file fails the build: users couldn't show in their own tests that a typo is caught without calling the private driver path. `gitleaks_config_test(src, expect_error)` runs the same check at test time on a plain `.toml`. It passes iff the check fails with a message matching `expect_error` (a Python regex), or passes when `expect_error` is empty, and it names the file either way. The in-tree config tests use it.
+
+## Tracked-only scans (v0.2, #1)
+
+Scanning the working tree picks up files that aren't part of the repository: a developer's `.env.local`, other git worktrees under `.claude/worktrees/`, scratch output. One local secret would then fail everyone's `bazel test //...`, while `gitleaks_test`'s explicit `srcs` can't express "what git tracks".
+
+- **The file list:** the driver's `workspace` mode lists `git ls-files --cached`, which is the index: committed plus staged files. It keeps the regular files that exist in the working tree; deleted-but-unstaged files, submodules and symlinks are skipped, as `gitleaks dir` would skip them too.
+- **Staging:** those files are staged exactly as `gitleaks_test` stages its `srcs`, so findings, fingerprints and reports match. Their working-tree content is scanned, not the staged blob, so a change staged and then edited further is scanned as edited.
+- **Outside a git checkout** (a release archive, a vendored copy) there is no index, so it fails, naming the directory and git's message, rather than quietly scanning nothing.
+- **`gitleaks_scan(tracked_only = True)`** is the `bazel run` form. `mode = "git"` already scans git's history, so combining it with `tracked_only` is an analysis error.
+- **`gitleaks_workspace_test`** is the test form. A test normally sees only its declared inputs in a sandbox with no checkout, so this one is deliberately the exception:
+  - it is tagged `local`, `external` and `no-sandbox`, so it is never cached and always reads the live tree;
+  - it locates the tree by resolving a runfile of the workspace's `MODULE.bazel` to its real path (or `$BUILD_WORKSPACE_DIRECTORY` under `bazel run`).
+
+  It's a macro, so the default `marker = "//:MODULE.bazel"` resolves in the caller's repository.
 
 ## `gitleaks_aspect`
 
@@ -75,7 +97,11 @@ This repository contains no real-looking secret. `tests/make_fixture.sh` assembl
 - GitHub push protection has nothing to block;
 - the fixtures' targets carry `no-gitleaks`.
 
-## Not done (v0.1)
+## Arguments that start with `@` (v0.2)
+
+v0.1.0's driver let argparse read `@file` arguments. In a consumer, rules_gitleaks' own labels are external and print as `@rules_gitleaks+//config:default`; passed as `--label`, argparse tried to open that as a file. So every scan using the default config failed to build outside this repository. In-tree tests never see an external label, so `tests/consumer/` is now a separate consumer module that CI builds and tests, and the driver no longer reads `@file` arguments.
+
+## Not done
 
 - `[extend] path` (layered configs) and `url`.
 - `gitleaks git` inside a test: a test sandbox has no repository; history scans are `bazel run` only.

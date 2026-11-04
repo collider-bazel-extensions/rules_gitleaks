@@ -1,0 +1,6 @@
+[[rules]]
+id = "x"
+regex = "abc"
+
+  [[rules.allowlists]]
+  pathss = ["a"]

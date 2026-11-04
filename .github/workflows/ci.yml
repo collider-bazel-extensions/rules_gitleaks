@@ -28,6 +28,10 @@ jobs:
       - name: bazel test //tests/...
         run: bazel test //tests/... --test_output=errors
 
+      - name: A consumer module (external labels, default config)
+        working-directory: tests/consumer
+        run: bazel test //... --test_output=errors
+
       - name: Build-time failures
         run: |
           expect_fail() {  # expect_fail <message> <bazel build args...>
@@ -45,6 +49,7 @@ jobs:
       - name: Dogfood — this repository's working tree and history
         run: |
           bazel run //:gitleaks
+          bazel run //:gitleaks_tracked
           bazel run //:gitleaks_history
 
       - name: Upload test logs on failure

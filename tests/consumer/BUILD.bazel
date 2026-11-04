@@ -1,0 +1,18 @@
+load("@rules_gitleaks//:defs.bzl", "gitleaks_check", "gitleaks_config_test", "gitleaks_test")
+
+# The default config (@rules_gitleaks//config:default), from a consumer.
+gitleaks_test(
+    name = "default_config_test",
+    srcs = ["main.py"],
+)
+
+gitleaks_check(
+    name = "default_config_check",
+    srcs = ["main.py"],
+)
+
+gitleaks_config_test(
+    name = "typo_test",
+    src = "typo.toml",
+    expect_error = "unknown key 'pathss'",
+)
