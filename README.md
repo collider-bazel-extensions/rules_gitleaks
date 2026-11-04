@@ -32,9 +32,9 @@ To pin by archive and integrity instead of a git tag, replace the `git_override`
 ```python
 archive_override(
     module_name = "rules_gitleaks",
-    urls = ["https://github.com/collider-bazel-extensions/rules_gitleaks/archive/refs/tags/v0.1.0.tar.gz"],
-    strip_prefix = "rules_gitleaks-0.1.0",
-    integrity = "sha256-BtEeiPaYo/aB+6ODQZq7k+Iu4RpMpZdxBynoMyM2ztQ=",
+    urls = ["https://github.com/collider-bazel-extensions/rules_gitleaks/archive/refs/tags/v0.2.0.tar.gz"],
+    strip_prefix = "rules_gitleaks-0.2.0",
+    integrity = "sha256-q3Kzb837BTSAQQ3IjiIIhLzu14rRsvRsj2LGF408Whw=",
 )
 ```
 
