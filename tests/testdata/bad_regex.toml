@@ -1,0 +1,3 @@
+[[rules]]
+id = "broken"
+regex = '''(unclosed'''

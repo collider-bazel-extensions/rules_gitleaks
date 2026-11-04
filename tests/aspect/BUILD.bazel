@@ -1,0 +1,22 @@
+# For gitleaks_aspect (CI): `bazel build //tests/aspect:clean --aspects=...`
+# passes; `bazel build //tests/aspect:leaky --aspects=...` fails.
+load("//tests:fixtures.bzl", "fixture")
+
+fixture(name = "aws_ini", kind = "aws", out = "aws.ini")
+
+filegroup(
+    name = "clean",
+    srcs = ["//private:srcs"],
+)
+
+filegroup(
+    name = "leaky",
+    srcs = [":aws_ini"],
+    tags = ["manual"],
+)
+
+filegroup(
+    name = "skipped",
+    srcs = [":aws_ini"],
+    tags = ["manual", "no-gitleaks"],
+)

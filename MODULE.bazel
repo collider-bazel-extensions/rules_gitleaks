@@ -1,0 +1,36 @@
+"""rules_gitleaks — gitleaks secret scanning for Bazel.
+
+  gitleaks_config     — build-time checked .gitleaks.toml
+  gitleaks_test       — test: no secrets in files / generated outputs
+  gitleaks_check      — the same scan as a validation action
+  gitleaks_aspect     — incremental scan of every target's files
+  gitleaks_rule_test  — unit tests for custom rules and allowlists
+  gitleaks_scan       — `bazel run` over the working tree or git history
+
+Pinned: gitleaks 8.30.1 (upstream release binaries).
+"""
+
+module(
+    name = "rules_gitleaks",
+    version = "0.1.0",
+)
+
+bazel_dep(name = "bazel_skylib", version = "1.8.2")
+bazel_dep(name = "platforms", version = "1.0.0")
+
+# Public binary toolchain. The `gitleaks` extension creates
+# gitleaks_<platform> repos at the root module's gitleaks.version(), or
+# at this module's when the root names none.
+gitleaks = use_extension("//:extensions.bzl", "gitleaks")
+gitleaks.version(version = "8.30.1")
+use_repo(
+    gitleaks,
+    "gitleaks_darwin_amd64",
+    "gitleaks_darwin_arm64",
+    "gitleaks_linux_amd64",
+    "gitleaks_linux_arm64",
+)
+register_toolchains("@rules_gitleaks//toolchain:all")
+
+# ---- dev-only ---------------------------------------------------------------
+bazel_dep(name = "rules_shell", version = "0.8.0", dev_dependency = True)

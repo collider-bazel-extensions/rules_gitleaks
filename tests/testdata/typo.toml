@@ -1,0 +1,6 @@
+[[rules]]
+id = "corp-token"
+regex = '''corp_[a-z0-9]{16}'''
+
+  [[rules.allowlists]]
+  pathss = ['''docs/''']

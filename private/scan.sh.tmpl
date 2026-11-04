@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# gitleaks_scan: runs gitleaks over the workspace (`bazel run`).
+# Substitution markers use __KEY__ syntax to avoid colliding with bash.
+set -euo pipefail
+
+: "${BUILD_WORKSPACE_DIRECTORY:?gitleaks_scan: run it with bazel run}"
+if [[ -z "${RUNFILES_DIR:-}" ]]; then
+  if [[ -d "${0}.runfiles" ]]; then RUNFILES_DIR="${0}.runfiles"; fi
+  : "${RUNFILES_DIR:?gitleaks_scan: no runfiles found}"
+fi
+resolve() {
+  local p="$1"
+  for c in "${RUNFILES_DIR}/_main/${p}" "${RUNFILES_DIR}/${p}" "${RUNFILES_DIR}/${p#../}"; do
+    [[ -e "$c" ]] && { printf '%s\n' "$c"; return; }
+  done
+  echo "gitleaks_scan: not in runfiles: ${p}" >&2
+  exit 1
+}
+
+# Resolve into variables first: a failing $(resolve) inside an argument
+# list would not stop the script under `set -e`.
+gitleaks="$(resolve '__GITLEAKS__')"
+config="$(resolve '__CONFIG__')"
+opts=()
+__OPTS__
+
+cd "$BUILD_WORKSPACE_DIRECTORY"
+unset GITLEAKS_CONFIG GITLEAKS_CONFIG_TOML
+exec "$gitleaks" __MODE__ . --no-banner --config "$config" --redact=__REDACT__ \
+  ${opts[@]+"${opts[@]}"} __EXTRA__ "$@"

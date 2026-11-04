@@ -1,0 +1,4 @@
+# gitleaks' built-in rules, unchanged. The default config of every
+# rules_gitleaks scan.
+[extend]
+useDefault = true

@@ -1,0 +1,5 @@
+# Every finding in the //tests fixtures, accepted (ignore_test).
+tests/leaky/aws.ini:aws-access-token:1
+tests/leaky/aws.ini:generic-api-key:2
+tests/leaky/ci.yaml:github-pat:2
+tests/tree/nested/ci.env:github-pat:1

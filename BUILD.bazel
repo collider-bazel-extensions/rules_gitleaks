@@ -1,0 +1,43 @@
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+load("//:defs.bzl", "gitleaks_scan")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "MODULE.bazel",
+    "defs.bzl",
+])
+
+# gitleaks_aspect's config and ignore file:
+#   --@rules_gitleaks//:aspect_config=//:my_gitleaks_config
+#   --@rules_gitleaks//:aspect_ignore=//:.gitleaksignore
+label_flag(
+    name = "aspect_config",
+    build_setting_default = "//config:default",
+)
+
+label_flag(
+    name = "aspect_ignore",
+    build_setting_default = "//config:no_ignore",
+)
+
+# This repository's own scans (CI runs both).
+gitleaks_scan(name = "gitleaks")
+
+gitleaks_scan(
+    name = "gitleaks_history",
+    mode = "git",
+)
+
+bzl_library(
+    name = "defs",
+    srcs = ["defs.bzl"],
+    deps = [
+        "//private:aspect",
+        "//private:check",
+        "//private:config",
+        "//private:providers",
+        "//private:scan",
+        "//private:test",
+    ],
+)

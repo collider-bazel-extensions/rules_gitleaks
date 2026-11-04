@@ -1,0 +1,3 @@
+[[rules]]
+description = "a rule without an id"
+regex = '''abc'''

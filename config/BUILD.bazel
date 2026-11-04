@@ -1,0 +1,14 @@
+load("//private:config.bzl", "gitleaks_config")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["default.toml"])
+
+# gitleaks' built-in rules: the default `config` of every scanning rule.
+gitleaks_config(
+    name = "default",
+    src = "default.toml",
+)
+
+# No ignore file: gitleaks_aspect's default --@rules_gitleaks//:aspect_ignore.
+filegroup(name = "no_ignore")

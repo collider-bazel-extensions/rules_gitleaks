@@ -1,0 +1,56 @@
+"""Private build files for rules_gitleaks. Public surface lives in
+//:defs.bzl, which re-exports from here."""
+
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "gitleaks.py",
+    "run.sh.tmpl",
+    "scan.sh.tmpl",
+    "versions.bzl",
+])
+
+bzl_library(
+    name = "providers",
+    srcs = ["providers.bzl"],
+)
+
+bzl_library(
+    name = "common",
+    srcs = ["common.bzl"],
+    deps = [":providers"],
+)
+
+[bzl_library(
+    name = n,
+    srcs = [n + ".bzl"],
+    deps = [
+        ":common",
+        ":providers",
+    ],
+) for n in [
+    "aspect",
+    "check",
+    "config",
+    "scan",
+    "test",
+]]
+
+bzl_library(
+    name = "versions",
+    srcs = ["versions.bzl"],
+)
+
+bzl_library(
+    name = "repositories",
+    srcs = ["repositories.bzl"],
+    deps = [":versions"],
+)
+
+# This package's sources: scanned by //tests:clean_test (dogfood).
+filegroup(
+    name = "srcs",
+    srcs = glob(["*"]),
+)

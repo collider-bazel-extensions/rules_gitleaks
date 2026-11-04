@@ -1,0 +1,19 @@
+load("//:defs.bzl", "gitleaks_config")
+
+package(default_visibility = ["//tests:__subpackages__"])
+
+exports_files(glob(["*.toml", "*.gitleaksignore"]))
+
+# Checked on every build.
+gitleaks_config(
+    name = "corp",
+    src = "corp.toml",
+)
+
+# For the by-hand / CI check that a bad config fails `bazel build`
+# (`bazel build //tests/testdata:typo`); manual, so `//...` skips it.
+gitleaks_config(
+    name = "typo",
+    src = "typo.toml",
+    tags = ["manual"],
+)

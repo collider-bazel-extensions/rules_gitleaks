@@ -1,0 +1,233 @@
+"""Tests for rules_gitleaks. Secrets in fixtures are fake and generated at
+build time (make_fixture.sh), so the repository holds none. Targets that
+scan fixtures carry `no-gitleaks`, so gitleaks_aspect over //... passes."""
+
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load(
+    "//:defs.bzl",
+    "gitleaks_check",
+    "gitleaks_rule_test",
+    "gitleaks_scan",
+    "gitleaks_test",
+)
+load(":analysis_tests.bzl", "analysis_test_suite")
+load(":fixtures.bzl", "baseline", "fixture", "fixture_tree")
+
+exports_files(["make_fixture.sh"])
+
+_NO = ["no-gitleaks"]
+
+fixture(name = "aws_ini", kind = "aws", out = "leaky/aws.ini")
+fixture(name = "github_yaml", kind = "github", out = "leaky/ci.yaml")
+fixture(name = "allowed_yaml", kind = "allowed", out = "leaky/allowed.yaml")
+fixture(name = "corp_txt", kind = "corp", out = "leaky/corp.txt")
+fixture(name = "corp_doc_txt", kind = "corp_doc", out = "leaky/corp_doc.txt")
+fixture_tree(name = "tree")
+
+_LEAKY = [
+    ":allowed_yaml",
+    ":aws_ini",
+    ":github_yaml",
+    ":tree",
+]
+
+# ---- gitleaks_test ------------------------------------------------------------
+
+# Dogfood: this repository's own sources, and a `gitleaks:allow` line.
+gitleaks_test(
+    name = "clean_test",
+    srcs = [
+        ":allowed_yaml",
+        "//:defs.bzl",
+        "//:MODULE.bazel",
+        "//private:srcs",
+        "//tools:update_checksums.sh",
+    ] + glob(["*.sh", "*.bzl"]),
+    tags = _NO,
+)
+
+# Run by leak_detection_test, which expects it to fail.
+gitleaks_test(
+    name = "leaky_scan",
+    srcs = _LEAKY,
+    sarif = True,
+    tags = _NO + ["manual"],
+)
+
+sh_test(
+    name = "leak_detection_test",
+    srcs = ["leak_detection_test.sh"],
+    args = ["$(rootpath :leaky_scan)"],
+    data = [":leaky_scan"],
+    tags = _NO,
+)
+
+gitleaks_test(
+    name = "ignore_test",
+    srcs = _LEAKY,
+    ignore = "//tests/testdata:all_fixtures.gitleaksignore",
+    tags = _NO,
+)
+
+baseline(
+    name = "leaky_baseline",
+    srcs = _LEAKY,
+    tags = _NO,
+)
+
+gitleaks_test(
+    name = "baseline_test",
+    srcs = _LEAKY,
+    baseline = ":leaky_baseline",
+    tags = _NO,
+)
+
+# Only a rule that doesn't fire on the fixtures.
+gitleaks_test(
+    name = "enable_rules_test",
+    srcs = _LEAKY,
+    enable_rules = ["slack-bot-token"],
+    tags = _NO,
+)
+
+# A custom config: the corp token is found, its documented example isn't.
+gitleaks_test(
+    name = "custom_config_clean_test",
+    srcs = [":corp_doc_txt"],
+    config = "//tests/testdata:corp",
+    tags = _NO,
+)
+
+# ---- gitleaks_check -----------------------------------------------------------
+
+# Built by `bazel build //...`: a generated file that must stay clean.
+gitleaks_check(
+    name = "generated_check",
+    srcs = [":corp_doc_txt"],
+    config = "//tests/testdata:corp",
+    tags = _NO,
+)
+
+# CI: `bazel build //tests:leaky_check` must fail.
+gitleaks_check(
+    name = "leaky_check",
+    srcs = [":corp_txt"],
+    config = "//tests/testdata:corp",
+    tags = _NO + ["manual"],
+)
+
+# ---- gitleaks_rule_test -------------------------------------------------------
+
+gitleaks_rule_test(
+    name = "corp_rules_test",
+    clean = [
+        ":allowed_yaml",
+        ":corp_doc_txt",
+    ],
+    config = "//tests/testdata:corp",
+    leaks = {
+        ":aws_ini": "aws-access-token, generic-api-key",
+        ":corp_txt": "corp-token",
+        ":github_yaml": "github-pat",
+    },
+    tags = _NO,
+)
+
+# Wrong on purpose: run by rule_test_failure_test.
+gitleaks_rule_test(
+    name = "wrong_rule_test",
+    clean = [
+        ":aws_ini",
+        ":corp_doc_txt",
+    ],
+    config = "//tests/testdata:corp",
+    leaks = {":corp_txt": "github-pat"},
+    tags = _NO + ["manual"],
+)
+
+sh_test(
+    name = "rule_test_failure_test",
+    srcs = ["rule_test_failure_test.sh"],
+    args = ["$(rootpath :wrong_rule_test)"],
+    data = [":wrong_rule_test"],
+    tags = _NO,
+)
+
+# ---- gitleaks_config ----------------------------------------------------------
+
+sh_test(
+    name = "config_check_test",
+    srcs = ["config_check_test.sh"],
+    args = [
+        "$(rootpath //private:gitleaks.py)",
+        "$(rootpath //toolchain:current)",
+        "$(rootpath //tests/testdata:corp.toml)",
+    ],
+    data = [
+        "//private:gitleaks.py",
+        "//toolchain:current",
+    ] + ["//tests/testdata:" + f for f in [
+        "bad_regex.toml",
+        "bad_toml.toml",
+        "corp.toml",
+        "extend_url.toml",
+        "no_id.toml",
+        "typo.toml",
+    ]],
+)
+
+# ---- gitleaks_scan ------------------------------------------------------------
+
+gitleaks_scan(
+    name = "fixture_scan",
+    tags = ["manual"],
+)
+
+gitleaks_scan(
+    name = "fixture_history_scan",
+    mode = "git",
+    tags = ["manual"],
+)
+
+sh_test(
+    name = "scan_test",
+    srcs = ["scan_test.sh"],
+    args = [
+        "$(rootpath :fixture_scan)",
+        "$(rootpath :fixture_history_scan)",
+        "$(rootpath :aws_ini)",
+        "$(rootpath :github_yaml)",
+    ],
+    data = [
+        ":aws_ini",
+        ":fixture_history_scan",
+        ":fixture_scan",
+        ":github_yaml",
+    ],
+    tags = _NO,
+)
+
+# ---- pins ---------------------------------------------------------------------
+
+sh_test(
+    name = "checksums_test",
+    srcs = ["checksums_test.sh"],
+    data = ["//private:versions.bzl"],
+)
+
+sh_test(
+    name = "version_test",
+    srcs = ["version_test.sh"],
+    args = [
+        "$(rootpath //private:versions.bzl)",
+        "$(rootpath //:MODULE.bazel)",
+        "$(rootpath //toolchain:current)",
+    ],
+    data = [
+        "//:MODULE.bazel",
+        "//private:versions.bzl",
+        "//toolchain:current",
+    ],
+)
+
+analysis_test_suite(name = "analysis_tests")

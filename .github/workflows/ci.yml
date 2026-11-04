@@ -1,0 +1,56 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: bazel test (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history for the git-mode dogfood scan
+
+      - uses: bazel-contrib/setup-bazel@0.15.0
+        with:
+          bazelisk-cache: true
+          disk-cache: ${{ github.workflow }}
+          repository-cache: true
+
+      - name: bazel build //... (with gitleaks_aspect)
+        run: bazel build //... --aspects=//:defs.bzl%gitleaks_aspect
+
+      - name: bazel test //tests/...
+        run: bazel test //tests/... --test_output=errors
+
+      - name: Build-time failures
+        run: |
+          expect_fail() {  # expect_fail <message> <bazel build args...>
+            local msg="$1"; shift
+            if bazel build "$@" 2> build.log; then echo "FAIL: bazel build $* succeeded" >&2; exit 1; fi
+            grep -qF "$msg" build.log || { cat build.log; echo "FAIL: '$msg' not in the output" >&2; exit 1; }
+            echo "ok: bazel build $* failed with: $msg"
+          }
+          expect_fail "unknown key 'pathss'" //tests/testdata:typo
+          expect_fail "fingerprint: tests/leaky/corp.txt:corp-token:1" //tests:leaky_check
+          expect_fail "fingerprint: tests/aspect/aws.ini:aws-access-token:1" \
+            //tests/aspect:leaky --aspects=//:defs.bzl%gitleaks_aspect
+          bazel build //tests/aspect:skipped --aspects=//:defs.bzl%gitleaks_aspect
+
+      - name: Dogfood — this repository's working tree and history
+        run: |
+          bazel run //:gitleaks
+          bazel run //:gitleaks_history
+
+      - name: Upload test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bazel-testlogs
+          path: bazel-testlogs/
+          if-no-files-found: ignore

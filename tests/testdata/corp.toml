@@ -1,0 +1,15 @@
+title = "corp"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "corp-token"
+description = "Internal corp service token"
+regex = '''corp_[a-z0-9]{16}'''
+keywords = ["corp_"]
+
+  # Documentation examples are not secrets.
+  [[rules.allowlists]]
+  description = "example tokens"
+  regexes = ['''corp_example''']
