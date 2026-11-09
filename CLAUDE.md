@@ -19,6 +19,8 @@ See DESIGN.md.
 ```
 rules_gitleaks/
 ├── MODULE.bazel              # module; gitleaks extension + toolchains
+├── .gitattributes            # tests/ export-ignore: the release archive loads with //... for consumers
+├── .github/consumer/check.sh # CI: @rules_gitleaks//... loads from the commit's git archive
 ├── BUILD.bazel               # aspect label flags; //:gitleaks, //:gitleaks_history (dogfood)
 ├── defs.bzl                  # public API re-exports
 ├── extensions.bzl            # `gitleaks.version()` → gitleaks_<plat> repos (root tag, else ours)
@@ -87,10 +89,11 @@ bazel run //:gitleaks && bazel run //:gitleaks_tracked && bazel run //:gitleaks_
 tools/update_checksums.sh 8.30.1         # re-pin; --check verifies
 ```
 
-### Test results (last full run: 2026-11-04)
+### Test results (last full run: 2026-11-08)
 
 All 34 test targets pass on Linux x86_64 (gitleaks 8.30.1): 33 in `//tests/...` and the dogfood `//:workspace_tracked_test`. Other checks:
 - **Consumer:** `tests/consumer` (default config, `gitleaks_config_test`) passes; with v0.1.0's `@file` argument parsing restored it fails to build, as v0.1.0 did for consumers using the default config. A scratch consumer git repo also ran `gitleaks_workspace_test`: a staged secret fails it, a gitignored `.env.local` doesn't.
+- **Release archive:** `.github/consumer/check.sh` (CI `consumer` job): the commit's `git archive` has no `tests/`, and `@rules_gitleaks//...` loads for a consumer module (v0.2.1; it failed on `tests/` loading the dev-only `rules_shell`).
 - **Python:** the driver and the vendored tomli parse as Python 3.8 syntax (`ast.parse(feature_version=(3, 8))`); the vendored parser is exercised by the `*_vendored_toml_test` targets. No Python older than 3.14 was available to run them on.
 - **Aspect:** `bazel build //... --aspects=...` passes, including with network blocked in the sandbox.
 - **Build-time failures:** the typo config, `leaky_check` and the aspect on `//tests/aspect:leaky` each fail `bazel build` with the expected message; `//tests/aspect:skipped` (`no-gitleaks`) passes. CI checks all of these.

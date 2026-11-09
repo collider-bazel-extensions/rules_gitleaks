@@ -101,6 +101,10 @@ This repository contains no real-looking secret. `tests/make_fixture.sh` assembl
 
 v0.1.0's driver let argparse read `@file` arguments. In a consumer, rules_gitleaks' own labels are external and print as `@rules_gitleaks+//config:default`; passed as `--label`, argparse tried to open that as a file. So every scan using the default config failed to build outside this repository. In-tree tests never see an external label, so `tests/consumer/` is now a separate consumer module that CI builds and tests, and the driver no longer reads `@file` arguments.
 
+## Release archive contents (v0.2.1)
+
+`tests/` is `export-ignore` (`.gitattributes`): its packages load the dev-only `rules_shell`, which made `@rules_gitleaks//...` unloadable for consumers. `REPO.bazel` `ignore_directories` would also hide `tests/` from this repo's own `bazel test //tests/...`, so it isn't used. A `git_override` clone (the README's first pin) still contains `tests/`. CI's `consumer` job queries `//...` from the commit's `git archive`.
+
 ## Not done
 
 - `[extend] path` (layered configs) and `url`.
