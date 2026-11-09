@@ -19,11 +19,11 @@ No host gitleaks needed. The binary is the upstream release for linux and darwin
 ## Install (Bzlmod)
 
 ```python
-bazel_dep(name = "rules_gitleaks", version = "0.2.0")
+bazel_dep(name = "rules_gitleaks", version = "0.2.1")
 git_override(
     module_name = "rules_gitleaks",
     remote = "https://github.com/collider-bazel-extensions/rules_gitleaks",
-    tag = "v0.2.0",
+    tag = "v0.2.1",
 )
 ```
 
@@ -32,11 +32,13 @@ To pin by archive and integrity instead of a git tag, replace the `git_override`
 ```python
 archive_override(
     module_name = "rules_gitleaks",
-    urls = ["https://github.com/collider-bazel-extensions/rules_gitleaks/archive/refs/tags/v0.2.0.tar.gz"],
-    strip_prefix = "rules_gitleaks-0.2.0",
+    urls = ["https://github.com/collider-bazel-extensions/rules_gitleaks/archive/refs/tags/v0.2.1.tar.gz"],
+    strip_prefix = "rules_gitleaks-0.2.1",
     integrity = "sha256-q3Kzb837BTSAQQ3IjiIIhLzu14rRsvRsj2LGF408Whw=",
 )
 ```
+
+The release archive (the tag tarball) leaves out `tests/`, whose packages load the dev-only `rules_shell`, so `bazel query @rules_gitleaks//...` works for consumers pinning with `archive_override`. A `git_override` clone still contains `tests/`; name packages instead (for example `@rules_gitleaks//:all`).
 
 That's all: rules_gitleaks registers its toolchain and fetches the binary only for the platform a build needs. To pick another pinned version, name it in your own `MODULE.bazel` (only the root module's tag counts):
 
