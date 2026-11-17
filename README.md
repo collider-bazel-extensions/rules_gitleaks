@@ -34,7 +34,7 @@ archive_override(
     module_name = "rules_gitleaks",
     urls = ["https://github.com/collider-bazel-extensions/rules_gitleaks/archive/refs/tags/v0.2.2.tar.gz"],
     strip_prefix = "rules_gitleaks-0.2.2",
-    integrity = "sha256-e2X65bkB6xpweWBXL60CxyqhvPVsz6VwQM8HR7QjHqA=",
+    integrity = "sha256-TwKPEABnq3yQBBOQotGFehoeNwCKJMhEd3InAyIKSCs=",
 )
 ```
 
