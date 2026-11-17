@@ -19,11 +19,11 @@ No host gitleaks needed. The binary is the upstream release for linux and darwin
 ## Install (Bzlmod)
 
 ```python
-bazel_dep(name = "rules_gitleaks", version = "0.2.1")
+bazel_dep(name = "rules_gitleaks", version = "0.2.2")
 git_override(
     module_name = "rules_gitleaks",
     remote = "https://github.com/collider-bazel-extensions/rules_gitleaks",
-    tag = "v0.2.1",
+    tag = "v0.2.2",
 )
 ```
 
@@ -32,8 +32,8 @@ To pin by archive and integrity instead of a git tag, replace the `git_override`
 ```python
 archive_override(
     module_name = "rules_gitleaks",
-    urls = ["https://github.com/collider-bazel-extensions/rules_gitleaks/archive/refs/tags/v0.2.1.tar.gz"],
-    strip_prefix = "rules_gitleaks-0.2.1",
+    urls = ["https://github.com/collider-bazel-extensions/rules_gitleaks/archive/refs/tags/v0.2.2.tar.gz"],
+    strip_prefix = "rules_gitleaks-0.2.2",
     integrity = "sha256-e2X65bkB6xpweWBXL60CxyqhvPVsz6VwQM8HR7QjHqA=",
 )
 ```
@@ -277,3 +277,9 @@ See [DESIGN.md](DESIGN.md) for the design and trade-offs, and [CLAUDE.md](CLAUDE
 Want Bazel rules for another tool or service?
 [Request a rules package](https://github.com/collider-bazel-extensions/.github/issues/new?template=request-a-rules-package.yml).
 The [organization page](https://github.com/collider-bazel-extensions) lists every package.
+
+## License
+
+[Apache License 2.0](LICENSE) (SPDX: `Apache-2.0`).
+
+`private/third_party/tomli/` is a vendored copy of [tomli](https://github.com/hukkin/tomli), under the MIT licence in [its LICENSE](private/third_party/tomli/LICENSE).
